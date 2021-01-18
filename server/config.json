@@ -1,0 +1,7 @@
+{
+    "tc": "10+0.1",
+    "option_name": "LMR_DIV",
+    "n_games_per_iteration": 1000,
+    "n_games_per_packet": 100,
+    "git_commit_hash": "deadbeef"
+}
