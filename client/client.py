@@ -1,3 +1,4 @@
+import signal
 import requests
 import time
 import sys
@@ -10,7 +11,7 @@ import pathlib
 import re
 import subprocess as sp
 
-IS_WINDOWS    = platform.system() is "Windows"
+IS_WINDOWS    = platform.system() == "Windows"
 
 
 def correct_path(path):
@@ -19,10 +20,19 @@ def correct_path(path):
     else:
         return path.replace("\\", "/")
 
+def remove_dir(path):
+    path = correct_path(path)
+    if os.path.isdir(path):
+        if IS_WINDOWS:
+            os.system(f"rmdir /S /Q {path}")
+        else:
+            os.system(f"rm -rf {path}")
+
+def engine_name(branch):
+    return f"{branch}{'.exe' if IS_WINDOWS else ''}"
 
 ROOT_PATH     = correct_path(os.path.dirname(os.path.abspath(__file__)))
 ENGINE_FOLDER = correct_path(ROOT_PATH + "/engine/")
-ENGINE_NAME   = "engine.exe" if IS_WINDOWS else "engine"
 BOOK_FOLDER   = correct_path(ROOT_PATH + "/books/")
 PGN_FOLDER    = correct_path(ROOT_PATH + "/pgn/")
 
@@ -68,7 +78,7 @@ class Client:
 
     def log(self, txt):
         t = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{t}] [LOG] {txt}")
+        print(f"[{t}] [LOG] {txt}", flush=True)
 
     def check_directories(self):
 
@@ -77,10 +87,7 @@ class Client:
         if os.path.isdir(ENGINE_FOLDER):
             self.log(f"Removing {ENGINE_FOLDER}")
             # if it already exists, make sure to clean the content of the folder
-            if IS_WINDOWS:
-                os.system(f"rmdir /S /Q {correct_path(ENGINE_FOLDER)}")
-            else:
-                os.system(f"rm -rf {ENGINE_FOLDER}")
+            remove_dir(ENGINE_FOLDER)
 
         self.log(f"creating {ENGINE_FOLDER}")
         os.mkdir(ENGINE_FOLDER)
@@ -98,98 +105,159 @@ class Client:
 
         self.check_directories()
 
-        os.chdir(ENGINE_FOLDER)
+        # create a temporary folder for cloning
+        os.chdir(ROOT_PATH)
+        remove_dir("temp")
+        os.mkdir("temp")
+        os.chdir("temp")
+
+        # cloning
         self.log(f"cloning branch {self.git_branch} from {self.git_repo}")
         sp.check_call(["git", "clone", "--depth", "1", self.git_repo, "-b", self.git_branch], stdout=sp.DEVNULL, stderr=sp.STDOUT)
 
-        makefiles = [k for k in pathlib.Path('.').rglob("makefile")]
+        # finding the makefile inside the git repo, throw a warning if no makefile was found
+        makefiles = [os.path.abspath(k) for k in pathlib.Path('.').rglob("makefile")]
         if len(makefiles) < 1:
             self.log("Cannot find makefile in project")
+            return False
         if len(makefiles) > 1:
             self.log("Found more than one makefile in project")
+            return False
 
+        # changing the directory to the directory of the makefile
         self.log(f"Found {makefiles[0]}")
-        os.chdir(os.path.dirname(makefiles[0]))
 
         # getting the compile command using make
-        os.system("make --just-print > temp.txt")
-        with open("temp.txt") as t:
-            old_command = t.readline()
-            print(old_command)
-            # reading the makefile output out of temp.txt and replace the -o value
-
-            new_command = re.sub(
-                "-o(.*)?[-\n]",
-                "-o " + correct_path((ENGINE_FOLDER + ENGINE_NAME)).replace('\\', '/'),
-                old_command)
+        os.chdir(os.path.dirname(makefiles[0]))
+        p = sp.Popen(f"make -f {makefiles[0]} --just-print", shell=True, stdout=sp.PIPE)
+        p.wait()
+        old_command = p.stdout.readline().decode("UTF-8")
+        new_command = re.sub(
+            "-o(.*)?[-\n]",
+            "-o " + correct_path((ENGINE_FOLDER + engine_name(self.git_branch))).replace('\\', '/'),
+            old_command)
 
         # actually compiling the project with an adjusted commmand
-        os.system(new_command + " > temp.txt")
-        os.remove("temp.txt")
+        self.log(f"Compiling")
+        sp.check_call(new_command, shell=True, stdout=sp.DEVNULL, stderr=sp.STDOUT)
 
         # go back to the engine folder and remove the git stuff
-        os.chdir(ENGINE_FOLDER)
+        os.chdir(ROOT_PATH)
         self.log("Removing cloned git repository")
-        for path in os.listdir("."):
-            if os.path.isdir(os.path.join(".", path)):
-                if IS_WINDOWS:
-                    os.system(f"rmdir /S /Q {correct_path(os.path.join('.', path))}")
-                else:
-                    os.system(f"rm -rf {correct_path(os.path.join('.', path))}")
+        remove_dir("temp")
 
         os.chdir(pwd)
+        return True
 
     def run_benchmark(self):
         pwd = os.getcwd()
         os.chdir(ENGINE_FOLDER)
 
-        print(os.path.exists(ENGINE_NAME))
-        print(os.path.abspath(ENGINE_NAME))
-
+        self.log("Starting benchmark")
         processes = []
         for i in range(self.threads):
-            self.log("Running benchmark")
-            process = sp.Popen([os.path.abspath(ENGINE_NAME),"bench"],stdout=sp.PIPE,shell=True)
-            # print(process.args)
-            # process.wait()
-            # os.system("engine.exe bench")
-            self.log("Finished benchmark")
+            processes.append(sp.Popen(engine_name(self.git_branch) + " bench", shell=True, stdout=sp.PIPE))
 
-        # for p in processes:
-        #     p.wait()
+        for p in processes:
+            p.wait()
 
-        # p())for p in processes:
-        #         #     while True:
-        #         #         output = p.stdout.readline()
-        #         #         if output == '' and p.poll() is not None:
-        #         #             break
-        #         #         if output:
-        #         #             print(output.stri
+        nodes = 0
+        nps   = 0
+
+        for p in processes:
+            for line in p.stdout:
+                line = line.decode("utf-8")
+
+                if "OVERALL" in line:
+                    while "  " in line:
+                        line = line.replace("  ", " ")
+
+                    temp_nodes  = int(line.split(" ")[1])
+                    temp_nps    = int(line.split(" ")[3])
+
+                    if nodes != 0 and temp_nodes != nodes:
+                        self.log("Non deterministic Bench!")
+                        return False
+
+                    nodes = temp_nodes
+                    nps   = temp_nps
 
         os.chdir(pwd)
+        self.log("Finished benchmark")
+
+        if nodes != self.bench:
+            self.log(f"Wrong Bench. Expected {self.bench}, got {nodes}")
+            return False
+
+        return nps
 
     def build_cutechess_command(self):
         self.log("Building cutechess command")
         engine_args    = f"restart=off " \
-                         f"cmd={ENGINE_FOLDER + ENGINE_NAME} " \
+                         f"cmd={ENGINE_FOLDER + engine_name(self.git_branch)} " \
                          f"proto=uci " \
                          f"tc={self.tc} " \
                          f"book={self.book} " \
                          f"bookdepth={books[self.book]} "
         engine_1_add   = f"name=lower option.{self.relevant_option}={self.relevant_center-self.relevant_deviation} "
         engine_2_add   = f"name=upper option.{self.relevant_option}={self.relevant_center+self.relevant_deviation} "
-        cutechess_args = "cutechess-cli " \
-                         f"-fcp {engine_1_add}" \
-                         f"-scp {engine_2_add}" \
-                         f"-both {engine_args}" \
+        cutechess_args = f"cutechess-cli{'.exe' if IS_WINDOWS else ''} " \
+                         f"-engine {engine_1_add}" \
+                         f"-engine {engine_2_add}" \
+                         f"-each {engine_args}" \
                          f"-concurrency {self.threads} " \
-                         f"-draw 100 0 " \
-                         f"-resign 5 10 " \
                          f"-games {self.games} " \
                          f"-pgnout {PGN_FOLDER}{time.time_ns()}.pgn " \
                          f"-repeat " \
-                         f"-srand({random.randint(0, 100000000)}) "
+                         f"-srand {random.randint(0, 100000000)} "
         return cutechess_args
+
+    def adjust_tc(self, nps):
+        scalar = self.base_speed / float(nps)
+
+        moves_to_go     = None
+        time            = None
+        increment       = None
+        tc              = self.tc
+
+        if "/" in self.tc:
+            split       = tc.split("/")
+            moves_to_go = int(split[0])
+            tc          =     split[1]
+
+
+        if "+" in self.tc:
+            split       = tc.split("+")
+            time        = float(split[0]) * scalar
+            increment   = float(split[1]) * scalar
+
+        else:
+            time        = float(tc) * scalar
+
+        self.tc         = f"{moves_to_go + '/' if moves_to_go is not None else ''}" \
+                          f"{round(time,3)}" \
+                          f"{'+' + str(round(increment,3)) if increment is not None else ''}"
+
+        self.log(f"Adjust tc: {self.tc}")
+
+        return self.tc
+
+    def iterate(self):
+        if not self.download_and_compile_engine():
+            exit(-1)
+
+        nps = self.run_benchmark()
+        if not nps:
+            exit(-1)
+
+        self.adjust_tc(nps)
+        self.log("starting cutechess...")
+        cutechess_command = self.build_cutechess_command()
+        try:
+            p = sp.Popen(cutechess_command, shell=True).wait()
+        except KeyboardInterrupt:
+            p.send_signal(signal.SIGINT)
+
 
 
 def poll_for_work():
@@ -230,7 +298,7 @@ def push_wdl(w, d, l):
 #     push_wdl(w, d, l)
 
 local = {
-    "threads": 1
+    "threads": 16
 }
 packet = {
     "games": 1000,
@@ -239,18 +307,17 @@ packet = {
     "options": {
         "Hash": 16,
         "Threads": 1
-    }   ,
+    },
     "relevant_option": "Hash",
     "relevant_center": 16,
-    "relevant_deviation":8,
+    "relevant_deviation": 8,
 
     "git_repo": "https://github.com/Luecx/Koivisto.git",
     "git_branch": "master",
 
-    "bench": 1,
+    "bench": 6853435,
     "base_speed": 2000000
 }
 client = Client(local, packet)
 
-# client.download_and_compile_engine()
-client.run_benchmark()
+client.iterate()
