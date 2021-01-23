@@ -27,10 +27,10 @@ def push_wdl():
     status["d"] += int(request.args.get("d", None))
     status["l"] += int(request.args.get("l", None))
 
-    if status["w"] + status["d"] + status["l"] > config["static_packet"]["n_games_per_iteration"]:
-        right_direction = status["w"] > status["l"]
-        status["delta"] = status["delta"] * 1 if right_direction else status["delta"] * -1
-        new_value = status["value"] + status["delta"]
+    if status["w"] + status["d"] + status["l"] >= config["n_games_per_iteration"]:
+        upper_is_better = status["w"] < status["l"]
+        difference = status["delta"] * 1 if upper_is_better else status["delta"] * -1
+        new_value = status["value"] + difference
 
         open("log.log", "a").write(f'value {status["value"]} new_value {new_value} w d l {status["w"]} + {status["d"]} + {status["l"]}\n')
 

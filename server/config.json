@@ -1,10 +1,25 @@
 {
     "static_packet": {
-        "tc": "10+0.1",
-        "option_name": "LMR_DIV",
-        "n_games_per_iteration": 1000,
-        "n_games_per_packet": 500,
-        "git_commit_hash": "deadbeef"
+        "games": 2,
+        "tc": "15+0.15",
+        "book": "4moves_noob.pgn",
+        "options": {
+            "Hash": 16,
+            "Threads": 1
+        },
+        "relevant_option": "Hash",
+        "relevant_deviation": 8,
+        "git_repo": "https://github.com/Luecx/Koivisto.git",
+        "git_branch": "master",
+        "bench": 7602398,
+        "base_speed": 2000000
     },
-    "tokens": ["abracadabra", "1234"]
+
+    "tokens": [
+        "abracadabra",
+        "1234"
+    ],
+    "delta": 1,
+    "n_games_per_iteration": 10
 }
+
