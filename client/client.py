@@ -38,10 +38,12 @@ PGN_FOLDER    = correct_path(ROOT_PATH + "/pgn/")
 
 SAVE_PGN_OUTPUT = True
 
+# books and their ply
 books = {
-    1: 8,
-    2: 6,
-    3: 16,
+    "2moves_v1.pgn"     : 4,
+    "3moves_FRC.pgn"    : 6,
+    "4moves_noob.pgn"   : 8,
+    "8moves_v3.pgn"     : 16,
 }
 
 
@@ -92,13 +94,24 @@ class Client:
         self.log(f"creating {ENGINE_FOLDER}")
         os.mkdir(ENGINE_FOLDER)
 
-        # if the book folder does not exist yet, make sure to create it
-        if not os.path.isdir(BOOK_FOLDER):
-            os.mkdir(BOOK_FOLDER)
+
 
         # if the pgn folder does not exist yet, make sure to create it
         if not os.path.isdir(PGN_FOLDER):
             os.mkdir(PGN_FOLDER)
+
+    def check_books(self):
+        # if the book folder does not exist yet, make sure to create it
+        if not os.path.isdir(BOOK_FOLDER):
+            self.log(f"creating {BOOK_FOLDER}")
+            os.mkdir(BOOK_FOLDER)
+
+        for book_name in books:
+            contents = requests.get(os.path.join(sys.argv[1])).contents
+            with open("books/" + book_name + ".zip", "wb") as file_handle:
+                file_handle.write(contents)
+
+
 
     def download_and_compile_engine(self):
         pwd = os.getcwd()
@@ -245,18 +258,20 @@ class Client:
     def iterate(self):
         if not self.download_and_compile_engine():
             exit(-1)
-
-        nps = self.run_benchmark()
-        if not nps:
-            exit(-1)
+        nps = 2000000
+        #nps = self.run_benchmark()
+        #if not nps:
+        #    exit(-1)
 
         self.adjust_tc(nps)
         self.log("starting cutechess...")
         cutechess_command = self.build_cutechess_command()
         try:
+            p = None
             p = sp.Popen(cutechess_command, shell=True).wait()
         except KeyboardInterrupt:
-            p.send_signal(signal.SIGINT)
+            if p is not None:
+                p.send_signal(signal.SIGINT)
 
 
 
