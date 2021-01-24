@@ -1,0 +1,20 @@
+{
+  "batch": 2,
+  "delta": 0.1,
+  "apply_factor": 0.001,
+  "n_iter_adjust": 2,
+  "n_threads": 2,
+  "variables":{
+    "FUTILITY_MARGIN": 92,
+    "RAZOR_MARGIN": 198,
+    "SE_MARGIN_STATIC": 0,
+    "LMR_DIV": 2150
+  },
+  "engine": "Koivisto.exe",
+  "tc":"1+0.01",
+  "book":"2moves_v1.pgn",
+  "uci_options": {
+    "Hash": 16,
+    "Threads": 1
+  }
+}
